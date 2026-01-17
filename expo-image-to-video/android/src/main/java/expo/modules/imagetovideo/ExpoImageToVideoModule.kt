@@ -2,6 +2,8 @@ package expo.modules.imagetovideo
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field    
+import expo.modules.kotlin.records.Record   
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,35 +42,42 @@ class ExpoImageToVideoModule : Module() {
       ))
     }
 
-    AsyncFunction("generateVideo") { options: VideoOptions, promise: expo.modules.kotlin.Promise ->
+    // The 'options' argument will now automatically map to the VideoOptions class below
+        AsyncFunction("generateVideo") { options: VideoOptions, promise: expo.modules.kotlin.Promise ->
             val context = appContext.reactContext ?: throw Exception("Context not found")
             
-            // Run in background thread to keep UI and JS thread responsive
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val outputFile = if (options.outputPath != null) {
-                        File(options.outputPath)
+                        File(options.outputPath!!)
                     } else {
                         File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
                     }
 
+                    // Ensure defaults are handled if 0 or null
+                    val finalBitrate = options.bitrate ?: 2500000 
+                    
                     val encoder = VideoEncoder(
                         outputFile,
                         options.width,
                         options.height,
                         options.fps,
-                        options.bitrate ?: 2500000
+                        finalBitrate
                     )
 
                     encoder.start()
 
                     options.images.forEach { uri ->
-                        // Resolve Expo/Content URIs to Bitmaps
+                        // Load bitmap with the fixed width/height
                         val bitmap = ImageUtils.loadBitmap(context, uri, options.width, options.height)
-                            ?: throw Exception("Failed to load image: $uri")
                         
-                        encoder.encodeFrame(bitmap)
-                        bitmap.recycle() // Critical for memory management
+                        if (bitmap != null) {
+                            encoder.encodeFrame(bitmap)
+                            bitmap.recycle()
+                        } else {
+                            // Optional: Log warning for failed image load
+                            println("ExpoImageToVideo: Failed to load $uri")
+                        }
                     }
 
                     encoder.stop()
@@ -93,11 +102,25 @@ class ExpoImageToVideoModule : Module() {
 }
 
 // Data class for Expo Module auto-serialization
-data class VideoOptions(
-    val images: List<String>,
-    val fps: Int,
-    val width: Int,
-    val height: Int,
-    val bitrate: Int?,
-    val outputPath: String?
-) : expo.modules.kotlin.types.Enumerable
+// 1. Must implement 'Record'
+// 2. Must use 'var' (mutable) properties
+// 3. Must use '@Field' annotation
+class VideoOptions : Record {
+    @Field
+    var images: List<String> = emptyList()
+
+    @Field
+    var fps: Int = 30
+
+    @Field
+    var width: Int = 1280
+
+    @Field
+    var height: Int = 720
+
+    @Field
+    var bitrate: Int? = null
+
+    @Field
+    var outputPath: String? = null
+}

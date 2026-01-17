@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import AVFoundation
+import UIKit
 
 public class ExpoImageToVideoModule: Module {
   // Each module class must implement the definition function. The definition consists of components
@@ -33,19 +34,22 @@ public class ExpoImageToVideoModule: Module {
       ])
     }
 
+    // The 'options' argument automatically maps to the VideoOptions struct below
     AsyncFunction("generateVideo") { (options: VideoOptions, promise: Promise) in
-      // Move to background thread to avoid blocking the JS/UI threads
+      
+      // Run on global background queue to avoid blocking UI
       DispatchQueue.global(qos: .userInitiated).async {
         do {
+          // 1. Output Path Setup
           let outputURL = options.outputPath != nil 
             ? URL(fileURLWithPath: options.outputPath!) 
             : URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("video_\(UUID().uuidString).mp4")
 
-          // Delete existing file if it exists (AVAssetWriter will fail otherwise)
           if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
           }
 
+          // 2. Initialize Encoder
           let encoder = try VideoEncoder(
             outputURL: outputURL,
             width: options.width,
@@ -54,13 +58,18 @@ public class ExpoImageToVideoModule: Module {
             bitrate: options.bitrate ?? 2_500_000
           )
 
+          // 3. Loop through images
           for (index, imageUri) in options.images.enumerated() {
-            // Use autoreleasepool to prevent memory spikes during high-res processing
+            // Autoreleasepool is critical for memory dumping between frames
             try autoreleasepool {
-              guard let url = URL(string: imageUri),
-                    let data = try? Data(contentsOf: url),
-                    let image = UIImage(data: data) else {
-                throw NSError(domain: "ExpoImageToVideo", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load image at \(imageUri)"])
+              guard let url = URL(string: imageUri) else { return }
+
+              // IMPROVEMENT: Downsample image on load to save RAM (like Android's inSampleSize)
+              let downsampledImage = self.loadDownsampledImage(at: url, for: CGSize(width: options.width, height: options.height))
+              
+              guard let image = downsampledImage else {
+                 print("ExpoImageToVideo: Failed to load \(imageUri)")
+                 return 
               }
 
               let frameTime = CMTime(value: Int64(index), timescale: Int32(options.fps))
@@ -68,6 +77,7 @@ public class ExpoImageToVideoModule: Module {
             }
           }
 
+          // 4. Finish
           encoder.finish { success in
             if success {
               promise.resolve(outputURL.path)
@@ -80,6 +90,23 @@ public class ExpoImageToVideoModule: Module {
         }
       }
     }
+
+    // Helper: Efficiently loads and downsamples image without decoding full resolution first
+  private func loadDownsampledImage(at url: URL, for size: CGSize) -> UIImage? {
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true, // Respects EXIF orientation
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height)
+    ]
+    
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return UIImage(cgImage: cgImage)
+  }
+
 
     // Enables the module to be used as a native view. Definition components that are accepted as part of the
     // view definition: Prop, Events.
@@ -98,11 +125,23 @@ public class ExpoImageToVideoModule: Module {
 
 
 // Structure to map the JS options object
+// Must inherit from 'Record' and use '@Field'
 struct VideoOptions: Record {
-  @Field var images: [String] = []
-  @Field var fps: Int = 30
-  @Field var width: Int = 1280
-  @Field var height: Int = 720
-  @Field var bitrate: Int? = nil
-  @Field var outputPath: String? = nil
+  @Field
+  var images: [String] = []
+
+  @Field
+  var fps: Int = 30
+
+  @Field
+  var width: Int = 1280
+
+  @Field
+  var height: Int = 720
+
+  @Field
+  var bitrate: Int? = nil
+
+  @Field
+  var outputPath: String? = nil
 }

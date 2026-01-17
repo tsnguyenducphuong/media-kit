@@ -19,17 +19,41 @@ export type ExpoImageToVideoViewProps = {
 };
 
 export interface VideoOptions {
-  /** Array of local file URIs (e.g., from expo-image-picker or expo-file-system) */
+  /**
+   * An array of local file URIs (file://...) to images.
+   * At least one image is required.
+   */
   images: string[];
-  /** Frames per second (e.g., 30 or 60) */
+
+  /**
+   * Frames per second for the output video.
+   * Recommended: 30 or 60.
+   */
   fps: number;
-  /** Final video width (pixels) */
+
+  /**
+   * Width of the output video in pixels.
+   * Example: 1920 (for 1080p), 1280 (for 720p).
+   */
   width: number;
-  /** Final video height (pixels) */
+
+  /**
+   * Height of the output video in pixels.
+   * Example: 1080 (for 1080p), 720 (for 720p).
+   */
   height: number;
-  /** Target bitrate in bits per second. Default is 2.5Mbps (2,500,000) */
+
+  /**
+   * Optional bitrate in bits per second.
+   * Higher values = better quality but larger file size.
+   * Default: 2,500,000 (2.5 Mbps).
+   */
   bitrate?: number;
-  /** Optional custom output path. If not provided, a temp file is created */
+
+  /**
+   * Optional full path to the output file.
+   * If not provided, a temporary file is created in the cache directory.
+   */
   outputPath?: string;
 }
 

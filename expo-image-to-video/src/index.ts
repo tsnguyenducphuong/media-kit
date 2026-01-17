@@ -1,25 +1,35 @@
-// Reexport the native module. On web, it will be resolved to ExpoImageToVideoModule.web.ts
-// and on native platforms to ExpoImageToVideoModule.ts
-// export { default } from './ExpoImageToVideoModule';
-export { default as ExpoImageToVideoView } from './ExpoImageToVideoView';
-// export * from  './ExpoImageToVideo.types';
-
 import ExpoImageToVideoModule from './ExpoImageToVideoModule';
 import { VideoOptions } from './ExpoImageToVideo.types';
 
-
 /**
- * Converts a list of images to an MP4 video file using native hardware encoders.
- * @param options Configuration for the video encoding process.
- * @returns A promise that resolves to the local URI of the generated .mp4 file.
+ * Converts a sequence of images into an MP4 video.
+ * * @param options Configuration object for video generation.
+ * @returns A Promise that resolves to the file URI of the generated video.
  */
 export async function generateVideo(options: VideoOptions): Promise<string> {
-  // Validate basic requirements before hitting native code
-  if (options.images.length === 0) {
-    throw new Error("At least one image is required to generate a video.");
+  // 1. Validate Image List
+  if (!options.images || options.images.length === 0) {
+    throw new Error(
+      "[ExpoImageToVideo] The 'images' array cannot be empty. Please provide at least one image URI."
+    );
   }
-  
+
+  // 2. Validate Dimensions
+  if (options.width <= 0 || options.height <= 0) {
+    throw new Error(
+      `[ExpoImageToVideo] Invalid dimensions: ${options.width}x${options.height}. Width and height must be positive integers.`
+    );
+  }
+
+  // 3. Validate FPS
+  if (options.fps <= 0) {
+    throw new Error(
+      `[ExpoImageToVideo] Invalid FPS: ${options.fps}. Frames per second must be greater than 0.`
+    );
+  }
+
+  // 4. Call Native Module
   return await ExpoImageToVideoModule.generateVideo(options);
 }
 
-export * from './ExpoImageToVideo.types';
+export { VideoOptions };
