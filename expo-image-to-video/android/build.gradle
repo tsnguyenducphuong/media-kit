@@ -1,7 +1,7 @@
 apply plugin: 'com.android.library'
 
 group = 'expo.modules.imagetovideo'
-version = '0.1.2'
+version = '0.1.3'
 
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
 apply from: expoModulesCorePlugin
@@ -35,9 +35,27 @@ android {
   namespace "expo.modules.imagetovideo"
   defaultConfig {
     versionCode 1
-    versionName "0.1.2"
+    versionName "0.1.3"
   }
   lintOptions {
     abortOnError false
   }
+}
+
+dependencies {
+    // 2. Kotlin Standard Library (SDK 54 uses Kotlin 1.9+)
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+
+    // 3. Android KTX for cleaner Kotlin code
+    implementation "androidx.core:core-ktx:1.12.0"
+
+    // 4. Coroutines for background processing (Critical for VideoEncoder)
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    // 5. EXIF support for image rotation handling
+    implementation "androidx.exifinterface:exifinterface:1.3.6"
+    
+    // 6. Lifecycle KTX (Useful if you want to scope encoding to the app lifecycle)
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.7.0"
 }

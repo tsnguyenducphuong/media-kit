@@ -20,7 +20,8 @@ Pod::Spec.new do |s|
 
   s.dependency 'ExpoModulesCore'
 
-  s.frameworks = 'AVFoundation', 'CoreMedia', 'CoreVideo', 'UIKit'
+  #s.frameworks = 'AVFoundation', 'CoreMedia', 'CoreVideo', 'UIKit'
+  s.frameworks = 'AVFoundation', 'CoreMedia', 'CoreVideo', 'UIKit', 'CoreGraphics'
 
   # Swift/Objective-C compatibility
   s.pod_target_xcconfig = {
