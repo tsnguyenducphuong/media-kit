@@ -14,15 +14,21 @@ class VideoEncoder {
         
         assetWriter = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         
+        // --- HIGH QUALITY COMPRESSION SETTINGS ---
+        let compressionProperties: [String: Any] = [
+            AVVideoAverageBitRateKey: bitrate,
+            AVVideoExpectedSourceFrameRateKey: fps,
+            AVVideoMaxKeyFrameIntervalKey: fps * 2, // I-Frame every 2 seconds
+            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel, // High Profile
+            AVVideoAllowFrameReorderingKey: true // Enables B-Frames for better quality/size ratio
+        ]
+        
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: bitrate,
-                AVVideoExpectedSourceFrameRateKey: fps,
-                AVVideoMaxKeyFrameIntervalKey: fps
-            ]
+            AVVideoScalingModeKey: AVVideoScalingModeResizeAspectFill,
+            AVVideoCompressionPropertiesKey: compressionProperties
         ]
         
         input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
@@ -31,10 +37,15 @@ class VideoEncoder {
         let bufferAttributes: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
             kCVPixelBufferWidthKey as String: width,
-            kCVPixelBufferHeightKey as String: height
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
         ]
         
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: bufferAttributes)
+        adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input, 
+            sourcePixelBufferAttributes: bufferAttributes
+        )
         
         assetWriter.add(input)
         assetWriter.startWriting()
@@ -42,9 +53,8 @@ class VideoEncoder {
     }
 
     func addFrame(image: UIImage, at time: CMTime) throws {
-        // Wait until the hardware encoder is ready for the next frame
         while !input.isReadyForMoreMediaData {
-            Thread.sleep(forTimeInterval: 0.01)
+            Thread.sleep(forTimeInterval: 0.005) // Tighter polling for performance
         }
         
         guard let pixelBuffer = createPixelBuffer(from: image) else {
@@ -63,16 +73,36 @@ class VideoEncoder {
         guard status == kCVReturnSuccess, let buffer = pixelBuffer else { return nil }
         
         CVPixelBufferLockBaseAddress(buffer, [])
-        let data = CVPixelBufferGetBaseAddress(buffer)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         
+        let data = CVPixelBufferGetBaseAddress(buffer)
         let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
-        let context = CGContext(data: data, width: width, height: height, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: rgbColorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        
+        let context = CGContext(
+            data: data,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: rgbColorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+        )
+        
+        // --- HIGH QUALITY SCALING ---
+        context?.interpolationQuality = .high // Ensures sharp scaling
+        context?.setShouldAntialias(true)
+        context?.setAllowsAntialiasing(true)
         
         if let cgImage = image.cgImage {
-            context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            // Calculate aspect fill rect to avoid stretching
+            let imageSize = image.size
+            let targetSize = CGSize(width: width, height: height)
+            let rect = AVMakeRect(aspectRatio: imageSize, insideRect: CGRect(origin: .zero, size: targetSize))
+            
+            context?.clear(CGRect(x: 0, y: 0, width: width, height: height))
+            context?.draw(cgImage, in: rect)
         }
         
-        CVPixelBufferUnlockBaseAddress(buffer, [])
         return buffer
     }
 

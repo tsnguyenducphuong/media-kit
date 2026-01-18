@@ -36,53 +36,48 @@ public class ExpoImageToVideoModule: Module {
 
     // The 'options' argument automatically maps to the VideoOptions struct below
     AsyncFunction("generateVideo") { (options: VideoOptions, promise: Promise) in
-      
-      // Run on global background queue to avoid blocking UI
       DispatchQueue.global(qos: .userInitiated).async {
+        var encoder: VideoEncoder?
+        
         do {
-          // 1. Output Path Setup
           let outputURL = options.outputPath != nil 
             ? URL(fileURLWithPath: options.outputPath!) 
-            : URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("video_\(UUID().uuidString).mp4")
+            : URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("h_res_export_\(UUID().uuidString).mp4")
 
           if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
           }
 
-          // 2. Initialize Encoder
-          let encoder = try VideoEncoder(
+          // Default to 5Mbps for 1080p high-quality content
+          let bitrate = options.bitrate ?? 5_000_000
+
+          encoder = try VideoEncoder(
             outputURL: outputURL,
             width: options.width,
             height: options.height,
             fps: options.fps,
-            bitrate: options.bitrate ?? 2_500_000
+            bitrate: bitrate
           )
 
-          // 3. Loop through images
           for (index, imageUri) in options.images.enumerated() {
-            // Autoreleasepool is critical for memory dumping between frames
             try autoreleasepool {
               guard let url = URL(string: imageUri) else { return }
-
-              // IMPROVEMENT: Downsample image on load to save RAM (like Android's inSampleSize)
-              let downsampledImage = self.loadDownsampledImage(at: url, for: CGSize(width: options.width, height: options.height))
               
-              guard let image = downsampledImage else {
-                 print("ExpoImageToVideo: Failed to load \(imageUri)")
-                 return 
+              // Downsample using CGImageSource for memory efficiency and EXIF correction
+              let image = self.loadDownsampledImage(at: url, for: CGSize(width: options.width, height: options.height))
+              
+              if let validImage = image {
+                let frameTime = CMTime(value: Int64(index), timescale: Int32(options.fps))
+                try encoder?.addFrame(image: validImage, at: frameTime)
               }
-
-              let frameTime = CMTime(value: Int64(index), timescale: Int32(options.fps))
-              try encoder.addFrame(image: image, at: frameTime)
             }
           }
 
-          // 4. Finish
-          encoder.finish { success in
+          encoder?.finish { success in
             if success {
               promise.resolve(outputURL.path)
             } else {
-              promise.reject("ERR_VIDEO_FINALIZATION", "Could not finalize MP4 file")
+              promise.reject("ERR_VIDEO_FINALIZATION", "AVAssetWriter failed to finalize")
             }
           }
         } catch {
@@ -90,6 +85,7 @@ public class ExpoImageToVideoModule: Module {
         }
       }
     }
+  }
 
     // Helper: Efficiently loads and downsamples image without decoding full resolution first
   private func loadDownsampledImage(at url: URL, for size: CGSize) -> UIImage? {
