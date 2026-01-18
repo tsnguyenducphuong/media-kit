@@ -2,6 +2,7 @@ package expo.modules.imagetovideo
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Rect
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -24,12 +25,26 @@ class VideoEncoder(
     private var frameDurationUs = 1000000L / fps
     private var frameCount = 0
 
+    // High-quality paint for scaling bitmaps
+    private val paint = Paint().apply {
+        isAntiAlias = true
+        isFilterBitmap = true
+        isDither = true
+    }
+
     fun start() {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1) // One I-frame per second
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2) // I-frame every 2 seconds for better seekability/quality
+            
+            // --- HIGH QUALITY OPTIMIZATIONS ---
+            // Use Variable Bitrate (VBR) to prioritize quality in complex frames
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+            // Use High Profile for better compression efficiency (if supported)
+            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh)
+            setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel4)
         }
 
         encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
@@ -44,11 +59,10 @@ class VideoEncoder(
     fun encodeFrame(bitmap: Bitmap) {
         val canvas = inputSurface?.lockCanvas(null) ?: return
         try {
-            // Draw bitmap and scale to fit the video frame
+            // High-quality drawing to the surface
             val destRect = Rect(0, 0, width, height)
-            canvas.drawBitmap(bitmap, null, destRect, null)
+            canvas.drawBitmap(bitmap, null, destRect, paint)
         } finally {
-            // Setting presentation time in microseconds
             val pts = frameCount * frameDurationUs
             inputSurface?.unlockCanvasAndPost(canvas)
             drainEncoder(false, pts)
@@ -69,8 +83,10 @@ class VideoEncoder(
             if (outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (!endOfStream) break
             } else if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                trackIndex = muxer?.addTrack(encoder.outputFormat) ?: -1
-                muxer?.start()
+                if (trackIndex == -1) {
+                    trackIndex = muxer?.addTrack(encoder.outputFormat) ?: -1
+                    muxer?.start()
+                }
             } else if (outputBufferIndex >= 0) {
                 val encodedData = encoder.getOutputBuffer(outputBufferIndex) ?: continue
                 
@@ -92,11 +108,17 @@ class VideoEncoder(
     }
 
     fun stop() {
-        drainEncoder(true, frameCount * frameDurationUs)
-        encoder?.stop()
-        encoder?.release()
-        muxer?.stop()
-        muxer?.release()
-        inputSurface?.release()
+        try {
+            drainEncoder(true, frameCount * frameDurationUs)
+            encoder?.stop()
+        } finally {
+            encoder?.release()
+            muxer?.stop()
+            muxer?.release()
+            inputSurface?.release()
+            encoder = null
+            muxer = null
+            inputSurface = null
+        }
     }
 }

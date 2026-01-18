@@ -1,6 +1,6 @@
 {
   "name": "expo-image-to-video",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "High-performance native image-to-video conversion for Expo",
   "main": "build/index.js",
   "types": "build/index.d.ts",

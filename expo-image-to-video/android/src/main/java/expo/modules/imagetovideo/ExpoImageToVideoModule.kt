@@ -42,48 +42,51 @@ class ExpoImageToVideoModule : Module() {
       ))
     }
 
-    // The 'options' argument will now automatically map to the VideoOptions class below
         AsyncFunction("generateVideo") { options: VideoOptions, promise: expo.modules.kotlin.Promise ->
-            val context = appContext.reactContext ?: throw Exception("Context not found")
+            val context = appContext.reactContext ?: run {
+                promise.reject("ERR_CONTEXT", "React Context not found", null)
+                return@AsyncFunction
+            }
             
             CoroutineScope(Dispatchers.IO).launch {
+                var encoder: VideoEncoder? = null
                 try {
-                    val outputFile = if (options.outputPath != null) {
+                    val outputFile = if (!options.outputPath.isNullOrEmpty()) {
                         File(options.outputPath!!)
                     } else {
-                        File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
+                        File(context.cacheDir, "export_${System.currentTimeMillis()}.mp4")
                     }
 
-                    // Ensure defaults are handled if 0 or null
-                    val finalBitrate = options.bitrate ?: 2500000 
+                    // For High Quality 1080p, we recommend 5-8Mbps
+                    val bitrate = options.bitrate ?: 5000000 
                     
-                    val encoder = VideoEncoder(
+                    encoder = VideoEncoder(
                         outputFile,
                         options.width,
                         options.height,
                         options.fps,
-                        finalBitrate
+                        bitrate
                     )
 
                     encoder.start()
 
-                    options.images.forEach { uri ->
-                        // Load bitmap with the fixed width/height
+                    options.images.forEachIndexed { index, uri ->
+                        // Using ImageUtils to load bitmap with memory-safe scaling
                         val bitmap = ImageUtils.loadBitmap(context, uri, options.width, options.height)
-                        
                         if (bitmap != null) {
                             encoder.encodeFrame(bitmap)
                             bitmap.recycle()
                         } else {
-                            // Optional: Log warning for failed image load
-                            println("ExpoImageToVideo: Failed to load $uri")
+                            // Professional error logging without crashing
+                            System.err.println("ExpoImageToVideo: Skipping invalid frame at index $index")
                         }
                     }
 
                     encoder.stop()
                     promise.resolve(outputFile.absolutePath)
                 } catch (e: Exception) {
-                    promise.reject("ERR_VIDEO_ENCODING", e.message, e)
+                    encoder?.stop()
+                    promise.reject("ERR_VIDEO_ENCODING", e.localizedMessage, e)
                 }
             }
     }
