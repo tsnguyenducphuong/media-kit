@@ -1,6 +1,7 @@
 import ExpoModulesCore
 import AVFoundation
-import UIKit
+import UIKit 
+import ImageIO // Necessary for CGImageSource
 
 public class ExpoImageToVideoModule: Module {
   // Each module class must implement the definition function. The definition consists of components
@@ -36,7 +37,9 @@ public class ExpoImageToVideoModule: Module {
 
     // The 'options' argument automatically maps to the VideoOptions struct below
     AsyncFunction("generateVideo") { (options: VideoOptions, promise: Promise) in
-      DispatchQueue.global(qos: .userInitiated).async {
+      // Use [weak self] to prevent memory leaks during long encoding tasks
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        guard let self = self else { return }
         var encoder: VideoEncoder?
         
         do {
@@ -64,7 +67,7 @@ public class ExpoImageToVideoModule: Module {
               guard let url = URL(string: imageUri) else { return }
               
               // Downsample using CGImageSource for memory efficiency and EXIF correction
-              let image = self.loadDownsampledImage(at: url, for: CGSize(width: options.width, height: options.height))
+              let image = self.loadDownsampledImage(at: url, for: CGSize(width: CGFloat(options.width), height: CGFloat(options.height)))
               
               if let validImage = image {
                 let frameTime = CMTime(value: Int64(index), timescale: Int32(options.fps))
@@ -84,25 +87,7 @@ public class ExpoImageToVideoModule: Module {
           promise.reject("ERR_VIDEO_ENCODING", error.localizedDescription)
         }
       }
-    }
-  }
-
-    // Helper: Efficiently loads and downsamples image without decoding full resolution first
-  private func loadDownsampledImage(at url: URL, for size: CGSize) -> UIImage? {
-    let options: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceCreateThumbnailWithTransform: true, // Respects EXIF orientation
-        kCGImageSourceShouldCacheImmediately: true,
-        kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height)
-    ]
-    
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-        return nil
-    }
-    return UIImage(cgImage: cgImage)
-  }
-
+    }  
 
     // Enables the module to be used as a native view. Definition components that are accepted as part of the
     // view definition: Prop, Events.
@@ -116,8 +101,28 @@ public class ExpoImageToVideoModule: Module {
 
       Events("onLoad")
     }
-  }
+  
 }
+
+// Helper: Efficiently loads and downsamples image without decoding full resolution first
+  private func loadDownsampledImage(at url: URL, for size: CGSize) -> UIImage? {
+    let options: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true, // Respects EXIF orientation
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height)
+    ]
+    
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+        return nil
+    }
+    return UIImage(cgImage: cgImage)
+}
+
+}
+
+ 
 
 
 // Structure to map the JS options object
